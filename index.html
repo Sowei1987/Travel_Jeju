@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0e7490">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="濟州慢旅">
+    
+    <title>濟州慢旅規劃 App (v4.1)</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="https://via.placeholder.com/192x192/0e7490/ffffff?text=Jeju">
+    
+    <!-- 強制清除舊版 Service Worker (確保新倉庫乾淨啟動) -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for(let registration of registrations) {
+                    // 如果發現舊的 sw 且不是目前的檔案，就刪除
+                    if (registration.active && registration.active.scriptURL.indexOf('service-worker.js') === -1) {
+                        registration.unregister();
+                    }
+                }
+            });
+        }
+    </script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React Core (使用 crossorigin 以便正確快取與報錯) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel (加入 crossorigin 解決 Script error 隱藏問題) -->
+    <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif;
+            background-color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none; /* 防止下拉更新 */
+        }
+        #root {
+            max-width: 480px;
+            margin-left: auto;
+            margin-right: auto;
+            background-color: #f9fafb;
+            min-height: 100vh;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.05);
+            padding-bottom: 80px; /* 為底部導航留空間 */
+        }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* 載入動畫 */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0e7490;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- 載入畫面 -->
+    <div id="root">
+        <div style="height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #ecfeff;">
+            <div class="loader"></div>
+            <div style="margin-top: 20px; color: #0e7490; font-weight: bold;">正在啟動濟州慢旅...</div>
+            <div style="margin-top: 10px; font-size: 12px; color: #666;">v4.1 System Check</div>
+        </div>
+    </div>
+
+    <!-- 錯誤處理 -->
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            // 忽略非關鍵錯誤
+            if(message && message.includes('ResizeObserver')) return;
+            
+            const root = document.getElementById('root');
+            root.innerHTML = `
+                <div style="padding: 20px; color: #b91c1c; font-family: monospace; word-break: break-all;">
+                    <h3 style="font-weight: bold; margin-bottom: 10px;">⚠️ 程式發生錯誤 (v4.1)</h3>
+                    <p>${message}</p>
+                    <p style="font-size: 12px; margin-top: 10px; color: #666;">Source: ${source}:${lineno}</p>
+                    <button onclick="localStorage.clear(); window.location.reload();" style="margin-top: 20px; padding: 10px 20px; background: #0e7490; color: white; border: none; border-radius: 8px;">重置 App</button>
+                </div>
+            `;
+        };
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, Component } = React;
+
+        // --- 設定與常數 ---
+        const APP_VERSION = "v4.1";
+        const STORAGE_KEY = "jeju_app_v4_clean_storage"; 
+
+        // --- 初始資料 ---
+        const INITIAL_ITINERARY = [
+          {
+            day: 1, date: "5/1", dayOfWeek: "五", fullDate: "2025-05-01",
+            weather: "🌤️", tempHigh: 19, tempLow: 14, rainProb: 10,
+            location: "濟州市區 (北部)", focus: "抵達與適應，確認租車與住宿",
+            activities: [
+              { time: "14:00", title: "抵達濟州國際機場", type: "交通", iconName: "Plane", desc: "確認兒童座椅與保險，機場附近取車，GPS設定正確。" },
+              { time: "15:30", title: "龍頭岩海岸散步", type: "景點", iconName: "MapIcon", desc: "平緩步道，適合長輩小孩暖身，拍拍抵達照。" },
+              { time: "17:30", title: "晚餐：鮑魚粥與海鮮湯", type: "美食", iconName: "Wallet", desc: "濟州市區，清淡好入口，需注意等候時間。" },
+              { time: "20:00", title: "入住濟州市區酒店", type: "住宿", iconName: "Home", desc: "確認房間配置，嬰兒床已準備。" }
+            ]
+          },
+          {
+            day: 2, date: "5/2", dayOfWeek: "六", fullDate: "2025-05-02",
+            weather: "☀️", tempHigh: 21, tempLow: 15, rainProb: 0,
+            location: "東部海岸線", focus: "童趣與森林探險：史努比庭園",
+            activities: [
+              { time: "09:30", title: "Snoopy Garden (史努比庭園)", type: "主景點", iconName: "CheckSquare", desc: "戶外花園平坦好走，室內展區有冷氣，預計停留3小時。" },
+              { time: "13:30", title: "午餐：黑豬肉烤肉", type: "美食", iconName: "Wallet", desc: "舊左邑附近，選座位寬敞店家，避免油煙影響幼兒。" },
+              { time: "15:30", title: "月汀里海邊", type: "休閒", iconName: "Sun", desc: "大人輪流喝咖啡 (鯨魚咖啡)，小孩在沙灘玩沙。" },
+              { time: "18:30", title: "晚餐：海鮮拉麵", type: "美食", iconName: "Wallet", desc: "景觀餐廳，看夕陽，需先訂位。" }
+            ]
+          },
+          {
+            day: 3, date: "5/3", dayOfWeek: "日", fullDate: "2025-05-03",
+            weather: "⛅", tempHigh: 20, tempLow: 16, rainProb: 20,
+            location: "城山/西歸浦", focus: "海洋奇觀與藝術：水族館",
+            activities: [
+              { time: "10:00", title: "Aqua Planet 水族館", type: "主景點", iconName: "CheckSquare", desc: "室內無障礙設施，適合雨備與小孩，看海豚表演。" },
+              { time: "13:00", title: "午餐：白帶魚套餐", type: "美食", iconName: "Wallet", desc: "無刺料理，方便老少食用，提前抵達避開人潮。" },
+              { time: "15:00", title: "光之地堡", type: "藝文", iconName: "BookOpen", desc: "沉浸式展覽，席地而坐欣賞，無須步行太多。" },
+              { time: "17:30", title: "城山日出峰 (遠觀)", type: "景點", iconName: "MapIcon", desc: "在海岸邊遠觀即可，不需爬山，找個平台拍照。" }
+            ]
+          },
+          {
+            day: 4, date: "5/4", dayOfWeek: "一", fullDate: "2025-05-04",
+            weather: "🌧️", tempHigh: 18, tempLow: 14, rainProb: 80,
+            location: "西歸浦市區", focus: "市場美食與瀑布：每日偶來市場",
+            activities: [
+              { time: "10:30", title: "山茶花之丘 (Camellia Hill)", type: "景點", iconName: "MapIcon", desc: "下雨天撐傘賞花，步道平緩，注意地面濕滑。" },
+              { time: "13:00", title: "每日偶來市場", type: "美食", iconName: "Wallet", desc: "西歸浦傳統市場體驗，主要購買橘子乾等伴手禮。" },
+              { time: "15:00", title: "天地淵瀑布", type: "景點", iconName: "MapIcon", desc: "步道最平緩的瀑布景點，入口有小橋流水。" },
+              { time: "18:00", title: "晚餐：烤肉吃到飽", type: "美食", iconName: "Wallet", desc: "在西歸浦市區找有兒童遊戲區的餐廳。" }
+            ]
+          },
+          {
+            day: 5, date: "5/5", dayOfWeek: "二", fullDate: "2025-05-05",
+            weather: "☀️", tempHigh: 22, tempLow: 16, rainProb: 0,
+            location: "西部綠茶區", focus: "茶香與休閒樂園：O'sulloc",
+            activities: [
+              { time: "10:30", title: "雪綠茶博物館 (O'sulloc)", type: "主景點", iconName: "CheckSquare", desc: "吃綠茶冰淇淋，逛商店，室內區適合休息。" },
+              { time: "13:00", title: "午餐：海邊刀削麵", type: "美食", iconName: "Wallet", desc: "茶園周邊特色美食，注意麵條是否適合幼兒。" },
+              { time: "15:00", title: "神話世界度假區", type: "休閒", iconName: "Home", desc: "視長輩體力決定是否進遊樂園，或單純在度假村內散步。" },
+              { time: "18:00", title: "晚餐：度假村內精緻料理", type: "美食", iconName: "Wallet", desc: "在酒店附近用餐，方便休息。" }
+            ]
+          },
+          {
+            day: 6, date: "5/6", dayOfWeek: "三", fullDate: "2025-05-06",
+            weather: "🌤️", tempHigh: 20, tempLow: 15, rainProb: 10,
+            location: "涯月海岸線", focus: "光影與涯月海岸：Arte Museum",
+            activities: [
+              { time: "10:30", title: "Arte Museum (媒體藝術)", type: "主景點", iconName: "CheckSquare", desc: "震撼的媒體藝術展，全室內，注意聲光效果。" },
+              { time: "13:00", title: "午餐：部隊鍋", type: "美食", iconName: "Wallet", desc: "在市區解決，熱食為主。" },
+              { time: "15:30", title: "涯月咖啡街", type: "景點", iconName: "Sun", desc: "選有戶外座位的咖啡館，看海，不需要走太多路。" },
+              { time: "18:00", title: "晚餐：東門市場二訪", type: "購物/美食", iconName: "Wallet", desc: "採購伴手禮並解決晚餐。" }
+            ]
+          },
+          {
+            day: 7, date: "5/7", dayOfWeek: "四", fullDate: "2025-05-07",
+            weather: "☀️", tempHigh: 21, tempLow: 16, rainProb: 0,
+            location: "濟州市區", focus: "最終採買與返程準備",
+            activities: [
+              { time: "10:00", title: "樂天超市/東門市場", type: "購物", iconName: "Wallet", desc: "最後伴手禮採買，重點是韓國泡麵、海苔、零食。" },
+              { time: "12:00", title: "午餐：機場附近簡易餐飲", type: "美食", iconName: "Wallet", desc: "簡單用餐，輕便為主。" },
+              { time: "14:00", title: "前往機場還車", type: "交通", iconName: "Truck", desc: "確保油箱加滿，檢查有無遺漏物品在車內。" },
+              { time: "16:30", title: "搭機返台", type: "交通", iconName: "Plane", desc: "辦理退稅手續，確認登機時間。" }
+            ]
+          }
+        ];
+
+        const INITIAL_CHECKLIST = [
+          { id: 1, text: "護照 (7大1小) / 身份證", checked: false },
+          { id: 2, text: "國際駕照 & 台灣駕照", checked: false },
+          { id: 3, text: "WOWPASS / 韓元現金", checked: false },
+          { id: 4, text: "信用卡 (雙幣卡)", checked: false },
+          { id: 5, text: "兒童推車/背帶/安全座椅", checked: false },
+          { id: 6, text: "尿布/濕紙巾/奶粉/副食品", checked: false },
+          { id: 7, text: "長輩保暖衣物/輕薄羽絨", checked: false },
+          { id: 8, text: "拐杖/助行器 (如需要)", checked: false },
+          { id: 9, text: "常備藥品 (感冒/腸胃/過敏)", checked: false },
+          { id: 10, text: "OK繃/消毒水/防蚊液", checked: false },
+          { id: 11, text: "防曬乳/太陽眼鏡/帽子", checked: false },
+          { id: 12, text: "口罩/酒精噴霧/乾洗手", checked: false },
+          { id: 13, text: "萬用轉接頭/延長線 (多孔)", checked: false },
+          { id: 14, text: "手機充電線/行動電源", checked: false },
+          { id: 15, text: "相機/額外記憶卡/自拍桿", checked: false },
+          { id: 16, text: "雨具/輕便雨衣/防風外套", checked: false },
+        ];
+
+        // --- Icons ---
+        const IconBase = ({ children, size = 24, strokeWidth = 2, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+
+        // 新版 Logo：韓國國旗(太極) + 濟州島 + 油菜花
+        const JejuLogo = () => (
+          <svg width="40" height="40" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+             <circle cx="50" cy="50" r="48" fill="#FFFFFF" stroke="#E5E7EB" strokeWidth="2"/>
+             {/* 濟州島輪廓 */}
+             <path d="M30 60C30 60 40 45 55 45C70 45 80 50 85 60C85 70 70 80 55 80C40 80 30 70 30 60Z" fill="#84CC16" opacity="0.3"/>
+             {/* 太極紅藍 */}
+             <path d="M50 20A15 15 0 0 1 65 35A15 15 0 0 0 80 50A30 30 0 0 1 20 50A15 15 0 0 0 35 35A15 15 0 0 1 50 20" fill="#EF4444"/>
+             <path d="M50 80A15 15 0 0 1 35 65A15 15 0 0 0 20 50A30 30 0 0 1 80 50A15 15 0 0 0 65 65A15 15 0 0 1 50 80" fill="#3B82F6"/>
+             {/* 油菜花點綴 */}
+             <circle cx="25" cy="75" r="4" fill="#FACC15"/>
+             <circle cx="35" cy="82" r="3" fill="#FACC15"/>
+          </svg>
+        );
+
+        const Icons = {
+            MapIcon: (props) => <IconBase {...props}><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" x2="8" y1="2" y2="18"/><line x1="16" x2="16" y1="6" y2="22"/></IconBase>,
+            Wallet: (props) => <IconBase {...props}><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></IconBase>,
+            CheckSquare: (props) => <IconBase {...props}><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></IconBase>,
+            Plus: (props) => <IconBase {...props}><path d="M5 12h14"/><path d="M12 5v14"/></IconBase>,
+            Sun: (props) => <IconBase {...props}><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></IconBase>,
+            CloudSun: (props) => <IconBase {...props}><path d="M12 2v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="M20 12h2"/><path d="m19.07 4.93-1.41 1.41"/><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"/><path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"/></IconBase>,
+            CloudRain: (props) => <IconBase {...props}><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M8 19v2"/><path d="M8 13v2"/><path d="M16 19v2"/><path d="M16 13v2"/><path d="M12 21v2"/><path d="M12 15v2"/></IconBase>,
+            CalendarDays: (props) => <IconBase {...props}><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></IconBase>,
+            PhoneCall: (props) => <IconBase {...props}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/><path d="M14.05 2a9 9 0 0 1 8 7.94"/><path d="M14.05 6A5 5 0 0 1 18 10"/></IconBase>,
+            X: (props) => <IconBase {...props}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></IconBase>,
+            Truck: (props) => <IconBase {...props}><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></IconBase>,
+            Home: (props) => <IconBase {...props}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></IconBase>,
+            BookOpen: (props) => <IconBase {...props}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></IconBase>,
+            Plane: (props) => <IconBase {...props}><path d="M2 12h20"/><path d="M13 2v20"/><path d="m9 5 3 7 3-7"/><path d="m9 19 3-7 3 7"/></IconBase>,
+            Trash2: (props) => <IconBase {...props}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></IconBase>,
+        };
+
+        // --- 組件定義 (防止 Re-render 焦點丟失，定義在 App 外部) ---
+
+        const Header = () => (
+            <div className="bg-white px-6 pt-12 pb-4 sticky top-0 z-30 border-b border-gray-100 shadow-sm">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <JejuLogo />
+                  <div>
+                    <h1 className="text-xl font-bold text-gray-800 tracking-tight leading-none">濟州慢旅</h1>
+                    <p className="text-xs text-cyan-600 font-medium tracking-wide mt-1">Slow Travel Plan</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+        );
+
+        const BottomNav = ({ activeTab, setActiveTab }) => (
+            <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around py-3 z-50 max-w-[480px] mx-auto pb-6">
+              <button onClick={() => setActiveTab('itinerary')} className={`flex flex-col items-center transition-colors ${activeTab === 'itinerary' ? 'text-cyan-700' : 'text-gray-400'}`}>
+                <Icons.CalendarDays strokeWidth={activeTab === 'itinerary' ? 2.5 : 2} size={24} />
+                <span className="text-[10px] mt-1 font-bold">行程</span>
+              </button>
+              <button onClick={() => setActiveTab('accounting')} className={`flex flex-col items-center transition-colors ${activeTab === 'accounting' ? 'text-cyan-700' : 'text-gray-400'}`}>
+                <Icons.Wallet strokeWidth={activeTab === 'accounting' ? 2.5 : 2} size={24} />
+                <span className="text-[10px] mt-1 font-bold">記帳</span>
+              </button>
+              <button onClick={() => setActiveTab('checklist')} className={`flex flex-col items-center transition-colors ${activeTab === 'checklist' ? 'text-cyan-700' : 'text-gray-400'}`}>
+                <Icons.CheckSquare strokeWidth={activeTab === 'checklist' ? 2.5 : 2} size={24} />
+                <span className="text-[10px] mt-1 font-bold">備忘</span>
+              </button>
+            </div>
+        );
+
+        const DaySelector = ({ itinerary, selectedDay, setSelectedDay }) => (
+            <div className="flex px-3 py-3 bg-white border-b border-gray-100 sticky top-[85px] z-20 overflow-x-auto whitespace-nowrap gap-2 hide-scrollbar shadow-sm">
+                {itinerary.map(d => {
+                    const isActive = d.day === selectedDay;
+                    return (
+                        <button key={d.day} onClick={() => setSelectedDay(d.day)} className={`flex-shrink-0 px-3 py-2 rounded-xl transition-all duration-200 border ${isActive ? 'bg-cyan-700 border-cyan-700 text-white shadow-md' : 'bg-white border-gray-100 text-gray-500'}`}>
+                            <div className="text-sm font-bold leading-none">Day {d.day}</div> 
+                            <div className={`text-[10px] mt-1 font-medium ${isActive ? 'opacity-90' : 'opacity-60'}`}>{d.date}</div>
+                        </button>
+                    );
+                })}
+            </div>
+        );
+
+        const ItineraryView = ({ itinerary, selectedDay }) => {
+            const dayData = itinerary.find(d => d.day === selectedDay);
+            if (!dayData) return null;
+
+            const getWeatherIcon = (weather) => {
+                if (weather.includes('🌧️')) return <Icons.CloudRain className="text-white" size={20}/>;
+                if (weather.includes('⛅')) return <Icons.CloudSun className="text-white" size={20}/>;
+                return <Icons.Sun className="text-white" size={20}/>;
+            };
+
+            const getTypeStyle = (type) => {
+                switch (type) {
+                    case '交通': return 'text-purple-600 bg-purple-50 border-purple-100';
+                    case '住宿': return 'text-red-600 bg-red-50 border-red-100';
+                    case '主景點': return 'text-cyan-700 bg-cyan-50 border-cyan-100';
+                    case '美食': return 'text-orange-600 bg-orange-50 border-orange-100';
+                    default: return 'text-gray-600 bg-gray-50 border-gray-100';
+                }
+            };
+
+            return (
+                <div className="animate-in fade-in">
+                    <div className="mx-4 mt-4 bg-gradient-to-br from-cyan-600 to-cyan-800 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
+                         <div className="absolute top-0 right-0 w-24 h-24 bg-white opacity-10 rounded-full -mr-10 -mt-10"></div>
+                         <div className="relative z-10 flex justify-between items-start">
+                            <div>
+                                <h2 className="text-xl font-bold">{dayData.location}</h2>
+                                <p className="text-sm opacity-90 mt-1">{dayData.focus}</p>
+                            </div>
+                            <div className="text-right">
+                                <div className="flex items-center justify-end gap-1 mb-1">
+                                    {getWeatherIcon(dayData.weather)}
+                                    <span className="font-bold text-lg">{dayData.tempHigh}°</span>
+                                    <span className="text-sm opacity-80">/ {dayData.tempLow}°</span>
+                                </div>
+                                <div className="text-xs bg-black/20 px-2 py-1 rounded-full inline-block">
+                                    ☔ 降雨 {dayData.rainProb}%
+                                </div>
+                            </div>
+                         </div>
+                    </div>
+
+                    <div className="p-4 relative">
+                        {dayData.activities.map((act, idx) => {
+                            const isLast = idx === dayData.activities.length - 1;
+                            const IconComponent = Icons[act.iconName] || Icons.MapIcon;
+                            const mapLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("濟州島 " + act.title)}`;
+
+                            return (
+                                <div key={idx} className="relative pl-8 pb-8">
+                                    {!isLast && <div className="absolute left-2.5 top-2 h-full w-0.5 bg-gray-200"></div>}
+                                    <div className="absolute left-0 top-1 w-5 h-5 bg-gray-50 flex items-center justify-center z-10">
+                                        <div className="w-2.5 h-2.5 bg-cyan-400 rounded-full"></div>
+                                    </div>
+                                    
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <span className="font-mono text-sm font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded">{act.time}</span>
+                                            <span className={`text-[10px] px-2 py-0.5 rounded border ${getTypeStyle(act.type)}`}>{act.type}</span>
+                                        </div>
+                                        <h3 className="font-bold text-gray-800 text-lg">{act.title}</h3>
+                                        <p className="text-sm text-gray-500 mt-1 leading-relaxed">{act.desc}</p>
+                                        <a href={mapLink} target="_blank" className="inline-flex items-center gap-1 text-xs font-bold text-cyan-600 mt-3 bg-cyan-50 px-3 py-1.5 rounded-lg hover:bg-cyan-100">
+                                            <Icons.MapIcon size={14}/> Google Maps
+                                        </a>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+
+        const AccountingView = ({ expenses, setExpenses, newItem, setNewItem, showAddExpense, setShowAddExpense, exchangeRate }) => {
+            // 計算
+            const totalKRW = expenses.reduce((sum, item) => sum + Number(item.amount), 0);
+            const grouped = expenses.reduce((acc, item) => {
+                const d = item.date;
+                if(!acc[d]) acc[d] = [];
+                acc[d].push(item);
+                return acc;
+            }, {});
+            const sortedDates = Object.keys(grouped).sort().reverse();
+
+            const handleSave = () => {
+                if(!newItem.title || !newItem.amount) return;
+                setExpenses(prev => [{...newItem, id: Date.now(), amount: Number(newItem.amount)}, ...prev]);
+                setNewItem({...newItem, title: "", amount: "", note: ""}); // 保留日期
+                setShowAddExpense(false);
+            };
+
+            const handleDelete = (id) => {
+                setExpenses(prev => prev.filter(e => e.id !== id));
+            };
+
+            return (
+                <div className="pb-20">
+                     <div className="bg-white p-4 sticky top-[72px] z-20 border-b border-gray-100 shadow-sm flex justify-between items-center">
+                        <div>
+                            <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">總支出 (KRW)</div>
+                            <div className="text-2xl font-black font-mono text-gray-800">₩ {totalKRW.toLocaleString()}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">≈ NT$ {Math.round(totalKRW / exchangeRate).toLocaleString()}</div>
+                        </div>
+                        <button onClick={() => setShowAddExpense(true)} className="w-10 h-10 bg-cyan-700 rounded-full flex items-center justify-center text-white shadow-lg active:scale-90 transition-transform">
+                            <Icons.Plus strokeWidth={3}/>
+                        </button>
+                     </div>
+
+                     <div className="p-4 space-y-4">
+                        {sortedDates.length === 0 && <div className="text-center text-gray-400 py-10">尚無紀錄</div>}
+                        {sortedDates.map(date => (
+                            <div key={date}>
+                                <div className="text-xs font-bold text-gray-400 mb-2 ml-1">{date}</div>
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                    {grouped[date].map((exp, i) => (
+                                        <div key={exp.id} className={`p-3 flex justify-between items-center ${i !== grouped[date].length - 1 ? 'border-b border-gray-50' : ''}`}>
+                                            <div className="flex-1 overflow-hidden mr-2">
+                                                <div className="font-bold text-gray-800 text-sm truncate">{exp.title}</div>
+                                                {exp.note && <div className="text-xs text-gray-400 truncate">{exp.note}</div>}
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-mono text-sm font-bold text-cyan-700">₩{Number(exp.amount).toLocaleString()}</span>
+                                                <button onClick={() => handleDelete(exp.id)} className="text-gray-300 hover:text-red-500 p-1"><Icons.Trash2 size={16}/></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                     </div>
+
+                     {/* Modal */}
+                     {showAddExpense && (
+                         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-6 backdrop-blur-sm animate-in fade-in">
+                             <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl">
+                                <h3 className="text-lg font-bold text-center mb-4">新增支出</h3>
+                                <div className="space-y-3">
+                                    <input type="date" value={newItem.date} onChange={e => setNewItem(prev => ({...prev, date: e.target.value}))} className="w-full bg-gray-50 border border-gray-200 p-3 rounded-lg text-sm"/>
+                                    <input type="text" placeholder="項目名稱" value={newItem.title} onChange={e => setNewItem(prev => ({...prev, title: e.target.value}))} className="w-full bg-gray-50 border border-gray-200 p-3 rounded-lg text-sm font-bold"/>
+                                    <div>
+                                        <input type="number" placeholder="金額 (韓元)" value={newItem.amount} onChange={e => setNewItem(prev => ({...prev, amount: e.target.value}))} className="w-full bg-gray-50 border border-gray-200 p-3 rounded-lg text-lg font-mono"/>
+                                        {newItem.amount && <div className="text-right text-xs text-gray-400 mt-1">≈ NT$ {Math.round(Number(newItem.amount)/exchangeRate).toLocaleString()}</div>}
+                                    </div>
+                                    <input type="text" placeholder="備註" value={newItem.note} onChange={e => setNewItem(prev => ({...prev, note: e.target.value}))} className="w-full bg-gray-50 border border-gray-200 p-3 rounded-lg text-sm"/>
+                                    <div className="flex gap-2 pt-2">
+                                        <button onClick={() => setShowAddExpense(false)} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-lg font-bold">取消</button>
+                                        <button onClick={handleSave} className="flex-1 py-3 bg-cyan-700 text-white rounded-lg font-bold shadow-md">儲存</button>
+                                    </div>
+                                </div>
+                             </div>
+                         </div>
+                     )}
+                </div>
+            );
+        };
+
+        const ChecklistView = ({ checklist, setChecklist, exchangeRate, setExchangeRate }) => {
+            const [input, setInput] = useState("");
+            const completed = checklist.filter(i => i.checked).length;
+            const progress = Math.round((completed / checklist.length) * 100) || 0;
+
+            const add = () => {
+                if(!input.trim()) return;
+                setChecklist(prev => [...prev, { id: Date.now(), text: input.trim(), checked: false }]);
+                setInput("");
+            };
+            const toggle = (id) => setChecklist(prev => prev.map(i => i.id === id ? {...i, checked: !i.checked} : i));
+            const remove = (id) => setChecklist(prev => prev.filter(i => i.id !== id));
+
+            return (
+                <div className="p-4 space-y-6">
+                    {/* SOS */}
+                    <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex gap-4">
+                        <div className="bg-red-50 p-2 rounded-lg"><Icons.PhoneCall className="text-red-500"/></div>
+                        <div>
+                            <div className="text-xs text-red-500 font-bold">緊急報案 112 / 119</div>
+                            <div className="text-xs text-gray-500">外交部急難救助 +82-2-399-2780</div>
+                        </div>
+                    </div>
+
+                    {/* Progress */}
+                    <div className="bg-cyan-700 text-white p-5 rounded-2xl shadow-lg relative overflow-hidden">
+                        <div className="relative z-10">
+                            <h2 className="text-sm font-bold opacity-80 mb-1">準備進度</h2>
+                            <div className="text-3xl font-black mb-3">{progress}%</div>
+                            <div className="w-full bg-black/20 h-2 rounded-full overflow-hidden">
+                                <div className="bg-white h-full transition-all duration-500" style={{width: `${progress}%`}}></div>
+                            </div>
+                        </div>
+                        <Icons.CheckSquare className="absolute -right-2 -bottom-2 w-24 h-24 text-white opacity-10" />
+                    </div>
+
+                    {/* Add */}
+                    <div className="flex gap-2">
+                        <input type="text" value={input} onChange={e => setInput(e.target.value)} placeholder="新增待辦事項..." className="flex-1 bg-white border-0 shadow-sm rounded-xl px-4 text-sm focus:ring-2 focus:ring-cyan-500"/>
+                        <button onClick={add} disabled={!input} className="bg-cyan-700 text-white w-12 rounded-xl flex items-center justify-center shadow-md disabled:opacity-50"><Icons.Plus/></button>
+                    </div>
+
+                    {/* List */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                        {checklist.map(item => (
+                            <div key={item.id} className="flex items-center justify-between p-4 border-b border-gray-50 last:border-0" onClick={() => toggle(item.id)}>
+                                <div className="flex items-center gap-3 flex-1">
+                                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${item.checked ? 'bg-cyan-600 border-cyan-600' : 'border-gray-300'}`}>
+                                        {item.checked && <Icons.CheckSquare size={12} className="text-white"/>}
+                                    </div>
+                                    <span className={`text-sm font-medium ${item.checked ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{item.text}</span>
+                                </div>
+                                <button onClick={(e) => { e.stopPropagation(); remove(item.id); }} className="text-gray-300 p-2"><Icons.X size={16}/></button>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Rate */}
+                    <div className="text-center p-4">
+                        <label className="text-xs text-gray-400 font-bold uppercase mr-2">匯率設定 (1 TWD)</label>
+                        <input type="number" value={exchangeRate} onChange={e => setExchangeRate(e.target.value)} className="w-16 text-center border-b-2 border-gray-200 font-mono text-sm focus:border-cyan-700 outline-none bg-transparent"/>
+                        <span className="text-xs text-gray-400 ml-1">KRW</span>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Error Boundary ---
+        class ErrorBoundary extends Component {
+            constructor(props) { super(props); this.state = { hasError: false }; }
+            static getDerivedStateFromError(error) { return { hasError: true }; }
+            render() {
+                if (this.state.hasError) return <div className="p-10 text-center"><h1 className="text-xl font-bold mb-4">發生錯誤</h1><button onClick={()=>{localStorage.clear(); window.location.reload();}} className="bg-red-500 text-white px-4 py-2 rounded">重設 APP</button></div>;
+                return this.props.children;
+            }
+        }
+
+        // --- Main App ---
+        const App = () => {
+            const [tab, setTab] = useState('itinerary');
+            const [day, setDay] = useState(1);
+            
+            // Data State
+            const [itinerary, setItinerary] = useState(INITIAL_ITINERARY);
+            const [expenses, setExpenses] = useState([]);
+            const [checklist, setChecklist] = useState(INITIAL_CHECKLIST);
+            const [exchangeRate, setExchangeRate] = useState(42.5);
+            
+            // Add Expense UI State
+            const [showAddExpense, setShowAddExpense] = useState(false);
+            const [newItem, setNewItem] = useState({ date: "2025-05-01", title: "", amount: "", note: "" });
+
+            // Load Data
+            useEffect(() => {
+                try {
+                    const localData = localStorage.getItem(STORAGE_KEY);
+                    if (localData) {
+                        const parsed = JSON.parse(localData);
+                        if(parsed.expenses) setExpenses(parsed.expenses);
+                        if(parsed.checklist) setChecklist(parsed.checklist);
+                        if(parsed.exchangeRate) setExchangeRate(parsed.exchangeRate);
+                        // Itinerary is usually static but loaded if needed
+                    }
+                } catch(e) { console.error("Load Error", e); }
+            }, []);
+
+            // Save Data
+            useEffect(() => {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({ expenses, checklist, exchangeRate }));
+                } catch(e) { console.error("Save Error", e); }
+            }, [expenses, checklist, exchangeRate]);
+
+            return (
+                <div className="min-h-screen">
+                    <Header />
+                    {tab === 'itinerary' && <DaySelector itinerary={itinerary} selectedDay={day} setSelectedDay={setDay} />}
+                    
+                    <main>
+                        {tab === 'itinerary' && <ItineraryView itinerary={itinerary} selectedDay={day} />}
+                        {tab === 'accounting' && (
+                            <AccountingView 
+                                expenses={expenses} setExpenses={setExpenses} 
+                                newItem={newItem} setNewItem={setNewItem}
+                                showAddExpense={showAddExpense} setShowAddExpense={setShowAddExpense}
+                                exchangeRate={exchangeRate}
+                            />
+                        )}
+                        {tab === 'checklist' && (
+                            <ChecklistView 
+                                checklist={checklist} setChecklist={setChecklist}
+                                exchangeRate={exchangeRate} setExchangeRate={setExchangeRate}
+                            />
+                        )}
+                    </main>
+
+                    <BottomNav activeTab={tab} setActiveTab={setTab} />
+                    
+                    <div className="text-center py-4 text-[10px] text-gray-300 font-mono">{APP_VERSION}</div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ErrorBoundary><App /></ErrorBoundary>);
+    </script>
+
+    <!-- PWA Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js')
+                    .then(reg => console.log('SW Registered', reg.scope))
+                    .catch(err => console.log('SW Fail', err));
+            });
+        }
+    </script>
+</body>
+</html>
