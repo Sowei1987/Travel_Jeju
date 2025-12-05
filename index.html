@@ -8,11 +8,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="濟州慢旅">
     
-    <title>濟州慢旅規劃 App (v4.1)</title>
+    <title>濟州慢旅規劃 App (v4.2)</title>
     
-    <!-- PWA Manifest -->
+    <!-- PWA Manifest & Icons -->
     <link rel="manifest" href="./manifest.json">
-    <link rel="apple-touch-icon" href="https://via.placeholder.com/192x192/0e7490/ffffff?text=Jeju">
+    <link rel="icon" type="image/svg+xml" href="./icon.svg">
+    <link rel="apple-touch-icon" href="./icon.svg">
     
     <!-- 強制清除舊版 Service Worker (確保新倉庫乾淨啟動) -->
     <script>
@@ -80,7 +81,7 @@
         <div style="height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #ecfeff;">
             <div class="loader"></div>
             <div style="margin-top: 20px; color: #0e7490; font-weight: bold;">正在啟動濟州慢旅...</div>
-            <div style="margin-top: 10px; font-size: 12px; color: #666;">v4.1 System Check</div>
+            <div style="margin-top: 10px; font-size: 12px; color: #666;">v4.2 System Check</div>
         </div>
     </div>
 
@@ -93,7 +94,7 @@
             const root = document.getElementById('root');
             root.innerHTML = `
                 <div style="padding: 20px; color: #b91c1c; font-family: monospace; word-break: break-all;">
-                    <h3 style="font-weight: bold; margin-bottom: 10px;">⚠️ 程式發生錯誤 (v4.1)</h3>
+                    <h3 style="font-weight: bold; margin-bottom: 10px;">⚠️ 程式發生錯誤 (v4.2)</h3>
                     <p>${message}</p>
                     <p style="font-size: 12px; margin-top: 10px; color: #666;">Source: ${source}:${lineno}</p>
                     <button onclick="localStorage.clear(); window.location.reload();" style="margin-top: 20px; padding: 10px 20px; background: #0e7490; color: white; border: none; border-radius: 8px;">重置 App</button>
@@ -106,7 +107,7 @@
         const { useState, useEffect, useMemo, Component } = React;
 
         // --- 設定與常數 ---
-        const APP_VERSION = "v4.1";
+        const APP_VERSION = "v4.2";
         const STORAGE_KEY = "jeju_app_v4_clean_storage"; 
 
         // --- 初始資料 ---

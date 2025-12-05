@@ -1,8 +1,9 @@
-const CACHE_NAME = 'jeju-app-v4.1-clean';
+const CACHE_NAME = 'jeju-app-v4.2-icons';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './icon.svg',
   'https://cdn.tailwindcss.com',
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
